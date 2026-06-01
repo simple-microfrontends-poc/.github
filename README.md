@@ -1,55 +1,75 @@
 # Admin Panel — Microfrontend E-commerce
 
-Minimalistyczny panel administracyjny platformy ecommerce, zbudowany w architekturze Microfrontends z wykorzystaniem **Module Federation 2.0**.
+A minimal admin panel for an e-commerce platform, built as a **Microfrontend** architecture using **Module Federation 2.0**.
 
-## Architektura
+## Overview
+
+The app is split into a host shell and several independent remotes, wired together at runtime via Module Federation. Each app under `apps/` is fully self-contained (its own `package.json` and `node_modules`) and is meant to eventually live in its own repository.
+
+| Role | App | Port | Description |
+|------|-----|------|-------------|
+| Host | `apps/shell` | 3000 | Main app — sidebar, routing, renders remote modules |
+| Remote | `apps/products` | 3001 | Product list — pagination + search + category filter (emits `productSelected`) |
+| Remote | `apps/categories` | 3002 | Category panel — category tree + details |
+| Remote | `apps/category-picker` | 3003 | Reusable category picker component (`./CategoryPicker`), consumed by other MFEs |
+| Remote | `apps/product-page` | 3004 | Single product card — fetches a product by SKU |
+| Shared | `apps/event-bus` | — | `mitt` singleton (`@admin/event-bus` package) for cross-MFE communication |
+
+## Tech Stack
+
+- **React 19** + TypeScript (strict mode)
+- **Webpack 5 + `@module-federation/enhanced`** — Module Federation 2.0 (`react` / `react-dom` shared as `singleton`)
+- **Tailwind CSS** — each MFE has its own config; shell loads global styles
+- **mitt** — event bus (in `event-bus`)
+- **react-router-dom v7** — URL routing; paths owned by the shell, query params also driven by `products`
+- No Vite — full Webpack 5 with the MF plugin
+
+## Project Structure
 
 ```
 admin/
-├── apps/                           # KOD — kazdy podfolder to samodzielny komponent
-│   │                               #       (wlasny package.json + node_modules), docelowo osobne repo
-│   ├── shell/                      # Host — shell glowny z sidebar menu
-│   ├── products/                   # Remote — LISTA produktow (konsumuje category-picker)
-│   ├── product-page/               # Remote — KARTA pojedynczego produktu (./App, fetch po SKU)
-│   ├── categories/                 # Remote — microfrontend kategorii
-│   ├── category-picker/            # Remote — reuzywalny picker kategorii (./CategoryPicker)
-│   └── event-bus/                  # Wspolny kontrakt — mitt event bus (shared singleton)
-├── docs/                           # DOKUMENTACJA (repo-split.md, ...)
-└── AGENTS.md
+├── apps/                  # CODE — each subfolder is a self-contained component
+│   ├── shell/             # Host — main shell with sidebar menu
+│   ├── products/          # Remote — product LIST (consumes category-picker)
+│   ├── product-page/      # Remote — single product CARD (./App, fetch by SKU)
+│   ├── categories/        # Remote — categories microfrontend
+│   ├── category-picker/   # Remote — reusable category picker (./CategoryPicker)
+│   └── event-bus/         # Shared contract — mitt event bus (shared singleton)
+├── docs/                  # Documentation (repo-split.md, ...)
+├── AGENTS.md
+└── README.md
 ```
 
-Nie ma juz nadrzednego workspace'u npm — kazdy komponent w `apps/` instaluje i buduje sie samodzielnie
-(`cd apps/<x> && npm install`). `event-bus` jest konsumowany przez `file:../event-bus`.
+There is no top-level npm workspace — each component in `apps/` installs and builds on its own
+(`cd apps/<x> && npm install`). `event-bus` is consumed via `file:../event-bus`.
 
-| Rola | Aplikacja | Opis |
-|------|-----------|------|
-| Host | `apps/shell` | Gowna aplikacja, sidebar, routing, renderuje RemoteModules |
-| Remote | `apps/products` | Lista produktow — paginacja + wyszukiwanie + filtr kategorii (emituje `productSelected`) |
-| Remote | `apps/product-page` | Karta pojedynczego produktu — pobiera produkt po SKU z backendu |
-| Remote | `apps/categories` | Panel kategorii — drzewo kategorii + szczegoly |
-| Remote | `apps/category-picker` | Reuzywalny komponent wyboru kategorii (`./CategoryPicker`), konsumowany przez inne MFE |
-| Shared | `apps/event-bus` | Singleton mitt (pakiet `@admin/event-bus`) do komunikacji miedzy microfrontendami |
+## Getting Started
 
-## Technologie
+Each component is standalone — install and run it separately (as if it were its own repo).
 
-- **React 19** z TypeScript
-- **Webpack 5 + `@module-federation/enhanced`** — Module Federation 2.0 (react/react-dom jako `singleton`, bez duplikacji)
-- **Tailwind CSS** — kazdy microfrontend ma wlasciwy config, shell ładuje style globalne
-- **mitt** — event bus w `event-bus`
-- **react-router-dom v7** — routing po URL; sciezki w shellu, query params tez w `products`; `react-router(-dom)` jako MF `singleton`
-- **Vite** nie jest wykorzystywany — pelny webpack 5 z MF pluginem
+```bash
+# Backend (in a separate terminal)
+cd ../backend && ./run.sh start
+
+# Each component in its own terminal (example: shell)
+cd apps/shell && npm install && npm run dev
+# likewise: apps/products, apps/categories, apps/category-picker, apps/product-page
+```
+
+To run everything at once you can use your own script / `concurrently`, or a thin meta-repo
+(see `docs/repo-split.md`). Start order does not matter — remotes connect to the shell at runtime.
 
 ## Module Federation 2.0
 
-Plugin pochodzi z `@module-federation/enhanced` (MF 2.0), nie z wbudowanego `webpack.container`:
+The plugin comes from `@module-federation/enhanced` (MF 2.0), not the built-in `webpack.container`:
 
 ```ts
 import { ModuleFederationPlugin } from "@module-federation/enhanced/webpack";
 ```
 
-`dts: false` — typy remote'ow deklarujemy recznie w `shell/src/types.d.ts`, bez automatycznej generacji.
+`dts: false` — remote types are declared manually in `shell/src/types.d.ts` (no automatic generation).
 
-### Host (`shell`)
+**Host (`shell`)** declares the remotes and shared singletons:
 
 ```ts
 new ModuleFederationPlugin({
@@ -62,181 +82,136 @@ new ModuleFederationPlugin({
   shared: {
     react: { singleton: true, requiredVersion: deps.react },
     "react-dom": { singleton: true, requiredVersion: deps["react-dom"] },
-    // Bez singletonu kazdy MFE ma wlasna instancje mitt -> zdarzenia nie przechodza
+    // Without a singleton each MFE gets its own mitt instance -> events don't propagate
     "@admin/event-bus": { singleton: true, requiredVersion: false },
-    // Jeden router na cala aplikacje (jedna historia/kontekst)
+    // One router for the whole app (single history/context)
     "react-router-dom": { singleton: true, requiredVersion: deps["react-router-dom"] },
   },
   dts: false,
 })
 ```
 
-### Remotes (`products`, `categories`)
+**Remotes (`products`, `categories`)** expose `./App` and share the same singletons.
 
-```ts
-new ModuleFederationPlugin({
-  name: "products", // lub "categories"
-  filename: "remoteEntry.js",
-  exposes: {
-    "./App": "./src/App",
-  },
-  shared: {
-    react: { singleton: true, requiredVersion: deps.react },
-    "react-dom": { singleton: true, requiredVersion: deps["react-dom"] },
-    // tylko w remote'ach uzywajacych szyny (products, categories)
-    "@admin/event-bus": { singleton: true, requiredVersion: false },
-  },
-  dts: false,
-})
-```
-
-### Konsumpcja remote'ow
-
-Shell laduje remote'y standardowo przez `React.lazy` + dynamiczny `import` (bez globali na `window`). `RemoteModule` mapuje aktywna karte na leniwy komponent i opakowuje go w `ErrorBoundary` (fallback gdy remote jest offline); `Suspense` jest w `App.tsx`:
-
-```tsx
-const remotes = {
-  products: React.lazy(() => import("products/App")),
-  categories: React.lazy(() => import("categories/App")),
-};
-```
+The shell loads remotes via `React.lazy` + dynamic `import` (no `window` globals). `RemoteModule`
+maps the active tab to a lazy component wrapped in an `ErrorBoundary` (fallback when a remote is
+offline); `Suspense` lives in `App.tsx`.
 
 ### Async boundary (bootstrap)
 
-`shared` z `singleton` wymaga asynchronicznej inicjalizacji share-scope, dlatego entry kazdej aplikacji jest rozbity:
+`shared` singletons require asynchronous share-scope init, so each app's entry is split:
 
-- `src/main.tsx` (shell) / `src/index.ts` (remote) — tylko `import("./bootstrap")`
-- `src/bootstrap.tsx` — wlasciwe `ReactDOM.createRoot(...).render(<App />)`
+- `src/main.tsx` (shell) / `src/index.ts` (remote) — only `import("./bootstrap")`
+- `src/bootstrap.tsx` — the actual `ReactDOM.createRoot(...).render(<App />)`
 
-Remote'y montuja sie do `#root` w trybie standalone (`:3001`, `:3002`); jako remote eksponuja wylacznie `./App`. Import CSS jest w `App.tsx` (a nie w bootstrapie), zeby style podrozowaly z eksponowanym modulem i dzialaly rowniez u hosta.
+Remotes mount to `#root` in standalone mode and expose only `./App` as a remote. CSS is imported in
+`App.tsx` (not in bootstrap) so styles travel with the exposed module and work in the host too.
 
-### Category Picker (reuzywalny remote)
+### Category Picker (reusable remote)
 
-`category-picker` (port `:3003`) eksponuje **`./CategoryPicker`** — jeden komponent przeznaczony do wielu use-case'ow. Konsumowany jest jak kazdy remote, ale to **komponent z propsami** (nie cala strona), wiec komunikacja idzie przez callback `onSelect`, a nie event-bus:
-
-```ts
-// products/webpack.config.mjs
-remotes: { categoryPicker: "categoryPicker@http://localhost:3003/remoteEntry.js" }
-```
+`category-picker` (port `:3003`) exposes **`./CategoryPicker`** — a single component for multiple
+use-cases. It is consumed like any remote, but it is a **component with props** (not a full page), so
+communication happens through an `onSelect` callback rather than the event bus:
 
 ```tsx
 const CategoryPicker = React.lazy(() => import("categoryPicker/CategoryPicker"));
-// opakowany w ErrorBoundary + Suspense (fallback gdy picker offline)
+// wrapped in ErrorBoundary + Suspense (fallback when the picker is offline)
 <CategoryPicker selectionMode="any" onSelect={(sel) => ...} onCancel={...} />
 ```
 
-Propsy (typy zadeklarowane recznie w `products/src/types.d.ts`, `dts:false`):
+Props (types declared manually in `products/src/types.d.ts`, `dts: false`):
 
-| Prop | Typ | Opis |
-|------|-----|------|
-| `onSelect` | `(sel: { id; name; path }) => void` | Zwraca wybrana kategorie + sciezke breadcrumb |
-| `onCancel?` | `() => void` | Renderuje przycisk „Anuluj" |
-| `selectionMode?` | `"leaf" \| "any"` | `leaf` — wybieralne tylko liscie (np. zmiana kategorii produktu); `any` — takze biezaca galaz (filtr; backend i tak filtruje wraz z podkategoriami). Domyslnie `leaf` |
-| `confirmLabel?`, `title?` | `string` | Etykieta przycisku / naglowek |
+| Prop | Type | Description |
+|------|------|-------------|
+| `onSelect` | `(sel: { id; name; path }) => void` | Returns the chosen category + breadcrumb path |
+| `onCancel?` | `() => void` | Renders a "Cancel" button |
+| `selectionMode?` | `"leaf" \| "any"` | `leaf` — only leaves selectable (e.g. changing a product's category); `any` — also the current branch (filter; backend filters subcategories anyway). Default `leaf` |
+| `confirmLabel?`, `title?` | `string` | Button label / header |
 
-**Nawigacja jest leniwa** — picker NIE pobiera calego drzewa (moze byc ogromne). Startuje od `GET /categories/roots`, a po kliknieciu w galaz dociaga jeden poziom przez `GET /categories/{id}` (pole `children`). Lisc rozpoznawany jest po pustej liscie `children` (discover-on-click). Kazdy poziom jest cache'owany, wiec cofanie po breadcrumb nie pobiera ponownie.
+**Navigation is lazy** — the picker does NOT fetch the whole tree (it can be huge). It starts from
+`GET /categories/roots` and pulls one level on branch click via `GET /categories/{id}` (the `children`
+field). A leaf is detected by an empty `children` list (discover-on-click). Each level is cached, so
+navigating back via the breadcrumb does not re-fetch.
 
-**Use-case 1 (zaimplementowany):** filtr na panelu produktow — wybrana kategoria ustawia `?category=<id>` w `GET /products`.
-**Use-case 2 (przyszly):** zmiana kategorii pojedynczego produktu — ten sam komponent z `selectionMode="leaf"`.
+- **Use-case 1 (implemented):** product-panel filter — the chosen category sets `?category=<id>` on `GET /products`.
+- **Use-case 2 (future):** changing a single product's category — same component with `selectionMode="leaf"`.
 
-## Komunikacja
+## Communication
 
-`event-bus` (pakiet `@admin/event-bus`) eksportuje singleton `mitt()`. Uzywane eventy:
+`event-bus` (`@admin/event-bus`) exports a `mitt()` singleton. Events in use:
 
-| Event | Kto wysyla | Kto odbiera | Opis |
-|-------|-----------|-------------|------|
-| `productSelected` | products | Shell | Klikniecie produktu na liscie — niesie `{ sku }`. Shell luzno reaguje, **nawigujac na `/products/{sku}`** (patrz Routing) |
-| `productDeleted` | products | Shell | Usunieto produkt |
-| `categoryDeleted` | categories | Shell | Usunieto kategorie |
+| Event | Emitter | Listener | Description |
+|-------|---------|----------|-------------|
+| `productSelected` | products | Shell | Product clicked in the list — carries `{ sku }`. Shell reacts loosely by **navigating to `/products/{sku}`** (see Routing) |
+| `productDeleted` | products | Shell | Product deleted |
+| `categoryDeleted` | categories | Shell | Category deleted |
 
 ## Routing
 
-Trasy (sciezki) definiuje **wylacznie shell** (`react-router-dom` v7) — to jedyny provider `<BrowserRouter>`.
-Remote moze jednak **uczestniczyc** w routingu, czytajac/zapisujac stan w query params tego samego routera
-(tak robi `products`). Warunek: router musi byc **wspoldzielony jako singleton** w `shared` — i to oba
-pakiety: `react-router-dom` ORAZ rdzen `react-router` (to on trzyma konteksty Routera). Bez singletonu
-rdzenia remote nie widzi `<BrowserRouter>` hosta (`useSearchParams` rzuca bledem).
+Routes (paths) are defined **only by the shell** (`react-router-dom` v7) — the single `<BrowserRouter>`
+provider. A remote can still **participate** by reading/writing state in the same router's query params
+(as `products` does). Requirement: the router must be **shared as a singleton** — and both packages:
+`react-router-dom` AND the core `react-router` (which holds the Router contexts). Without the core
+singleton, a remote can't see the host's `<BrowserRouter>` (`useSearchParams` throws).
 
-| Sciezka | Widok |
-|---------|-------|
-| `/` | Strona glowna (placeholder) |
-| `/products` | Lista produktow (`products/App`) |
-| `/products?category=<id>&q=<keyword>&page=<n>` | Lista z filtrem/wyszukiwaniem/paginacja (stan w URL) |
-| `/products/:sku` | Karta produktu (`productPage/App`, pobiera po SKU) |
-| `/categories` | Kategorie (`categories/App`) |
-| `*` | Redirect na `/` |
+| Path | View |
+|------|------|
+| `/` | Home (placeholder) |
+| `/products` | Product list (`products/App`) |
+| `/products?category=<id>&q=<keyword>&page=<n>` | List with filter/search/pagination (state in URL) |
+| `/products/:sku` | Product card (`productPage/App`, fetched by SKU) |
+| `/categories` | Categories (`categories/App`) |
+| `*` | Redirect to `/` |
 
-- Implementacja: `shell/src/App.tsx` (`<BrowserRouter>` + `<Routes>`), `shell/src/components/Sidebar.tsx`
-  uzywa `NavLink` (auto-aktywny stan; `/products/:sku` podswietla „Produkty" dzieki dopasowaniu prefiksu).
-- **`productSelected` → URL:** shell subskrybuje event i robi `navigate('/products/{sku}')`, zapisujac adres
-  listy (z filtrami) w `location.state.from`. Lista produktow nie zna sciezek — emituje tylko event (luzne spiecie).
-- **Powrot na karcie** odtwarza stan listy: jesli przyszlismy z listy (`state.from`), `navigate(-1)` wraca na
-  dokladnie ten sam URL (filtr/keyword/page sa w query, wiec wracaja same); przy wejsciu z deep-linku fallback na `/products`.
-- **Stan listy produktow w URL:** `products` uzywa `useSearchParams` (wspoldzielony router shella) — `category`,
-  `q`, `page` sa zrodlem prawdy; zmiana filtra/keywordu resetuje `page`. Nazwa kategorii do chipa pobierana
-  jest po `id` z `GET /categories/{id}` (deep-link nie zna nazwy). Standalone (`:3001`) ma wlasny
-  `<BrowserRouter>` w `bootstrap.tsx`; jako remote uzywa routera hosta.
-- Deep-linki dzialaja po odswiezeniu dzieki `historyApiFallback: true` w devServerze shella.
+- Implementation: `shell/src/App.tsx` (`<BrowserRouter>` + `<Routes>`), `shell/src/components/Sidebar.tsx`
+  uses `NavLink` (auto-active state; `/products/:sku` highlights "Products" via prefix match).
+- **`productSelected` → URL:** the shell subscribes to the event and runs `navigate('/products/{sku}')`,
+  storing the list address (with filters) in `location.state.from`. The product list knows no paths —
+  it only emits the event (loose coupling).
+- **Back from the card** restores the list state: if we came from the list (`state.from`), `navigate(-1)`
+  returns to the exact same URL (filter/keyword/page live in the query); deep-link entry falls back to `/products`.
+- **Product list state in URL:** `products` uses `useSearchParams` (the shell's shared router) —
+  `category`, `q`, `page` are the source of truth; changing the filter/keyword resets `page`. The
+  category name for the chip is fetched by `id` via `GET /categories/{id}` (deep-links don't carry the
+  name). Standalone (`:3001`) has its own `<BrowserRouter>` in `bootstrap.tsx`; as a remote it uses the host's router.
+- Deep-links survive refresh thanks to `historyApiFallback: true` in the shell's dev server.
 
 ## Styling
 
-- Kazdy microfrontend ma wlasny `tailwind.config.js` z tymi samymi kolorami/base styles
-- Shell importuje `tailwind.css` globalnie
-- Remote mody udostepniaja style przez webpack `MiniCssExtractPlugin`
-- Brak konfliktow stylow — kazdy MFE ma scoped styles
+- Each MFE has its own `tailwind.config.js` with the same colors / base styles
+- The shell imports `tailwind.css` globally
+- Remotes expose styles via Webpack's `MiniCssExtractPlugin`
+- No style conflicts — each MFE has scoped styles
 
 ## API
 
-Kazdy microfrontend ma wlasciwy `api.ts` z fetch do backendu:
+Each microfrontend has its own `api.ts` with fetch calls to the backend:
 
 | Endpoint | Method | Microfrontend |
 |----------|--------|---------------|
-| `/products?category={id}&search=&limit=&offset=` | GET | products (filtr `category` obejmuje podkategorie) |
-| `/products/by-sku/{sku}` | GET | product-page (karta produktu po SKU) |
-| `/products/{id}` | GET | (po numerycznym ID, nieuzywane przez front) |
+| `/products?category={id}&search=&limit=&offset=` | GET | products (the `category` filter includes subcategories) |
+| `/products/by-sku/{sku}` | GET | product-page (product card by SKU) |
+| `/products/{id}` | GET | (by numeric ID, unused by the frontend) |
 | `/categories` | GET | categories |
 | `/categories/tree` | GET | categories |
-| `/categories/roots` | GET | category-picker (poziom startowy, leniwa nawigacja) |
-| `/categories/{id}` | GET | categories, category-picker (drazenie o jeden poziom) |
+| `/categories/roots` | GET | category-picker (starting level, lazy navigation) |
+| `/categories/{id}` | GET | categories, category-picker (drill down one level) |
 
-Shell **nie zna** endpointow — microfrontendy komunikuja sie z backendem samodzielnie.
+The shell **does not know** the endpoints — microfrontends talk to the backend on their own.
 
 ## Backend
 
-Backend znajduje sie w `@backend/` i jest to FastAPI z:
-- SQLite baza danych
-- JSON-driven seeding (products.json, categories.json)
-- CORS wylaczony (`allow_origins=["*"]`)
-- Endpointy: `/products`, `/products/by-sku/{sku}`, `/products/{id}`, `/categories`, `/categories/tree`, `/categories/roots`, `/categories/{id}`, `/health`
+The backend lives in `@backend/` and is a FastAPI app with:
 
-## Uruchamianie
+- SQLite database
+- JSON-driven seeding (`products.json`, `categories.json`)
+- CORS open (`allow_origins=["*"]`)
+- Endpoints: `/products`, `/products/by-sku/{sku}`, `/products/{id}`, `/categories`, `/categories/tree`, `/categories/roots`, `/categories/{id}`, `/health`
 
-Kazdy komponent jest samodzielny — instalujesz i uruchamiasz go osobno (jak osobne repo).
-
-```bash
-# Backend (w osobnym terminalu)
-cd ../backend && ./run.sh start
-
-# Kazdy komponent w osobnym terminalu (przyklad: shell)
-cd apps/shell && npm install && npm run dev
-# analogicznie: apps/products, apps/categories, apps/category-picker, apps/product-page
-```
-
-Do uruchomienia wszystkiego naraz mozesz uzyc wlasnego skryptu/`concurrently` albo cienkiego
-meta-repo (patrz `docs/repo-split.md`). Kolejnosc nie ma znaczenia — remote'y lacza sie z shellem w runtime.
-
-Porty:
-- `apps/shell` — :3000
-- `apps/products` — :3001
-- `apps/categories` — :3002
-- `apps/category-picker` — :3003
-- `apps/product-page` — :3004
-
-## Konwencje kodu
+## Code Conventions
 
 - TypeScript strict mode
-- Kazdy plik .tsx ma odpowiadajacy komponent w tym samym katalogu
-- API clients w `lib/api.ts`
-- Brak komentarzy w kodzie (chyba ze konieczne)
-- Puste `__init__.py` nie jest potrzebne (to nie jest Python)
-- Style przez Tailwind utility classes, brak custom CSS (chyba ze konieczne)
+- Each `.tsx` file has a matching component in the same directory
+- API clients in `lib/api.ts`
+- No comments in code (unless necessary)
+- Styling via Tailwind utility classes, no custom CSS (unless necessary)
