@@ -14,6 +14,7 @@ The app is split into a host shell and several independent remotes, wired togeth
 | Remote | `apps/category-picker` | 3003 | Reusable category picker component (`./CategoryPicker`), consumed by other MFEs |
 | Remote | `apps/product-page` | 3004 | Single product card — fetches a product by SKU |
 | Shared | `apps/event-bus` | — | `mitt` singleton (`@admin/event-bus` package) for cross-MFE communication |
+| Backend | `backend` | 8000 | common simple backend REST service |
 
 ## Tech Stack
 
@@ -23,6 +24,7 @@ The app is split into a host shell and several independent remotes, wired togeth
 - **mitt** — event bus (in `event-bus`)
 - **react-router-dom v7** — URL routing; paths owned by the shell, query params also driven by `products`
 - No Vite — full Webpack 5 with the MF plugin
+- Python + venv for backend
 
 ## Project Structure
 
@@ -35,6 +37,7 @@ admin/
 │   ├── categories/        # Remote — categories microfrontend
 │   ├── category-picker/   # Remote — reusable category picker (./CategoryPicker)
 │   └── event-bus/         # Shared contract — mitt event bus (shared singleton)
+├── backend/               # Backend service
 ├── docs/                  # Documentation (repo-split.md, ...)
 ├── AGENTS.md
 └── README.md
@@ -207,6 +210,7 @@ The backend lives in `@backend/` and is a FastAPI app with:
 - JSON-driven seeding (`products.json`, `categories.json`)
 - CORS open (`allow_origins=["*"]`)
 - Endpoints: `/products`, `/products/by-sku/{sku}`, `/products/{id}`, `/categories`, `/categories/tree`, `/categories/roots`, `/categories/{id}`, `/health`
+- Running: just execute `./run.sh install` and then `./run.sh start` to start the backend service
 
 ## Code Conventions
 
