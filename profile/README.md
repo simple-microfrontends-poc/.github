@@ -33,7 +33,7 @@ admin/
 ├── apps/                  # CODE — each subfolder is a self-contained component
 │   ├── shell/             # Host — main shell with sidebar menu
 │   ├── products/          # Remote — product LIST (consumes category-picker)
-│   ├── product-page/      # Remote — single product CARD (./App, fetch by SKU)
+│   ├── product-page/      # Remote — single product CARD (./App, fetch by id)
 │   ├── categories/        # Remote — categories microfrontend
 │   ├── category-picker/   # Remote — reusable category picker (./CategoryPicker)
 │   └── event-bus/         # Shared contract — mitt event bus (shared singleton)
@@ -145,7 +145,7 @@ navigating back via the breadcrumb does not re-fetch.
 
 | Event | Emitter | Listener | Description |
 |-------|---------|----------|-------------|
-| `productSelected` | products | Shell | Product clicked in the list — carries `{ sku }`. Shell reacts loosely by **navigating to `/products/{sku}`** (see Routing) |
+| `productSelected` | products | Shell | Product clicked in the list — carries `{ id }`. Shell reacts loosely by **navigating to `/products/{id}`** (see Routing) |
 | `productDeleted` | products | Shell | Product deleted |
 | `categoryDeleted` | categories | Shell | Category deleted |
 
@@ -162,13 +162,13 @@ singleton, a remote can't see the host's `<BrowserRouter>` (`useSearchParams` th
 | `/` | Home (placeholder) |
 | `/products` | Product list (`products/App`) |
 | `/products?category=<id>&q=<keyword>&page=<n>` | List with filter/search/pagination (state in URL) |
-| `/products/:sku` | Product card (`productPage/App`, fetched by SKU) |
+| `/products/:id` | Product card (`productPage/App`, fetched by ID) |
 | `/categories` | Categories (`categories/App`) |
 | `*` | Redirect to `/` |
 
 - Implementation: `shell/src/App.tsx` (`<BrowserRouter>` + `<Routes>`), `shell/src/components/Sidebar.tsx`
-  uses `NavLink` (auto-active state; `/products/:sku` highlights "Products" via prefix match).
-- **`productSelected` → URL:** the shell subscribes to the event and runs `navigate('/products/{sku}')`,
+  uses `NavLink` (auto-active state; `/products/:id` highlights "Products" via prefix match).
+- **`productSelected` → URL:** the shell subscribes to the event and runs `navigate('/products/{id}')`,
   storing the list address (with filters) in `location.state.from`. The product list knows no paths —
   it only emits the event (loose coupling).
 - **Back from the card** restores the list state: if we came from the list (`state.from`), `navigate(-1)`
@@ -193,7 +193,6 @@ Each microfrontend has its own `api.ts` with fetch calls to the backend:
 | Endpoint | Method | Microfrontend |
 |----------|--------|---------------|
 | `/products?category={id}&search=&limit=&offset=` | GET | products (the `category` filter includes subcategories) |
-| `/products/by-sku/{sku}` | GET | product-page (product card by SKU) |
 | `/products/{id}` | GET | (by numeric ID, unused by the frontend) |
 | `/categories` | GET | categories |
 | `/categories/tree` | GET | categories |
@@ -209,7 +208,7 @@ The backend lives in `@backend/` and is a FastAPI app with:
 - SQLite database
 - JSON-driven seeding (`products.json`, `categories.json`)
 - CORS open (`allow_origins=["*"]`)
-- Endpoints: `/products`, `/products/by-sku/{sku}`, `/products/{id}`, `/categories`, `/categories/tree`, `/categories/roots`, `/categories/{id}`, `/health`
+- Endpoints: `/products`, `/products/{id}`, `/categories`, `/categories/tree`, `/categories/roots`, `/categories/{id}`, `/health`
 - Running: just execute `./run.sh install` and then `./run.sh start` to start the backend service
 
 ## Code Conventions
